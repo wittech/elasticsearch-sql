@@ -100,6 +100,32 @@ public class SqlParser {
         return delete;
     }
 
+    //todo::修改内容
+    public Update parseUpdate(SQLUpdateStatement updateStatement)
+            throws SqlParseException
+    {
+//        Update update = new Update();
+//        WhereParser whereParser = new WhereParser(this, updateStatement);
+//        update.getFrom().addAll(findFrom(updateStatement.getTableSource()));
+//
+//        update.getSets().addAll(updateStatement.getItems());
+//        update.setWhere(whereParser.findWhere());
+//        return update;
+
+        Update update = new Update();
+        WhereParser whereParser = new WhereParser(this, updateStatement);
+
+        update.getFrom().addAll(findFrom(updateStatement.getTableSource()));
+
+        update.setWhere(whereParser.findWhere());
+
+        update.getHints().addAll(parseHints(((ElasticSqlUpdateStatement) updateStatement).getHints()));
+
+        findLimit(((ElasticSqlUpdateStatement) updateStatement).getLimit(), update);
+
+        return update;
+    }
+
     public MultiQuerySelect parseMultiSelect(SQLUnionQuery query) throws SqlParseException {
         Select firstTableSelect = this.parseSelect((MySqlSelectQueryBlock) query.getLeft());
         Select secondTableSelect = this.parseSelect((MySqlSelectQueryBlock) query.getRight());

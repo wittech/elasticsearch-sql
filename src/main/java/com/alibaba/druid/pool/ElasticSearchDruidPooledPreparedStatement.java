@@ -1,5 +1,6 @@
 package com.alibaba.druid.pool;
 
+import org.elasticsearch.action.ActionResponse;
 import org.elasticsearch.client.Client;
 import org.elasticsearch.plugin.nlpcn.QueryActionElasticExecutor;
 import org.elasticsearch.plugin.nlpcn.executors.CsvExtractorException;
@@ -90,8 +91,37 @@ public class ElasticSearchDruidPooledPreparedStatement extends DruidPooledPrepar
         return new ObjectResultsExtractor(includeScore, includeType, includeId, queryAction).extractResults(execution, flat);
     }
 
+//    @Override
+//    public int executeUpdate() throws SQLException {
+//        throw new SQLException("executeUpdate not support in ElasticSearch");
+//    }
+
+    //todo::增加更新的支持
     @Override
     public int executeUpdate() throws SQLException {
-        throw new SQLException("executeUpdate not support in ElasticSearch");
+
+        checkOpen();
+
+        incrementExecuteCount();
+        transactionRecord(getSql());
+
+        oracleSetRowPrefetch();
+
+        conn.beforeExecute();
+        try {
+            SearchDao searchDao = new org.nlpcn.es4sql.SearchDao(client);
+            QueryAction queryAction = searchDao.explain(getSql());
+            Object execution = QueryActionElasticExecutor.executeAnyAction(searchDao.getClient(), queryAction);
+            //todo::更新结果处理
+//            ActionResponse actionResponse = (ActionResponse)execution;
+//            actionResponse.writeTo();
+            //return new ObjectResultsExtractor(false, false, false).extractResults(execution, flat);
+        } catch (Exception ex) {
+            throw checkException(ex);
+        } finally {
+            conn.afterExecute();
+        }
+
+        return 1;
     }
 }

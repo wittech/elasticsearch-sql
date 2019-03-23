@@ -6,6 +6,7 @@ import com.alibaba.druid.sql.ast.expr.SQLQueryExpr;
 import com.alibaba.druid.sql.ast.statement.SQLDeleteStatement;
 import com.alibaba.druid.sql.ast.statement.SQLJoinTableSource;
 import com.alibaba.druid.sql.ast.statement.SQLUnionQuery;
+import com.alibaba.druid.sql.ast.statement.SQLUpdateStatement;
 import com.alibaba.druid.sql.dialect.mysql.ast.statement.MySqlSelectQueryBlock;
 import com.alibaba.druid.sql.parser.*;
 import org.elasticsearch.client.Client;
@@ -16,6 +17,7 @@ import org.elasticsearch.search.SearchHits;
 import org.nlpcn.es4sql.domain.Delete;
 import org.nlpcn.es4sql.domain.JoinSelect;
 import org.nlpcn.es4sql.domain.Select;
+import org.nlpcn.es4sql.domain.Update;
 import org.nlpcn.es4sql.exception.SqlParseException;
 import org.nlpcn.es4sql.parse.ElasticLexer;
 import org.nlpcn.es4sql.parse.ElasticSqlExprParser;
@@ -64,6 +66,12 @@ public class ESActionFactory {
                     handleSubQueries(client, select);
                     return handleSelect(client, select);
                 }
+                //todo::增加的更新语句支持
+            case "UPDATE":
+                SQLStatementParser sqlStatementParser = createSqlStatementParser(sql);
+                SQLUpdateStatement updateStatement = sqlStatementParser.parseUpdateStatement();
+                Update update = new SqlParser().parseUpdate(updateStatement);
+                return new UpdateQueryAction(client, update);
 			case "DELETE":
                 SQLStatementParser parser = createSqlStatementParser(sql);
 				SQLDeleteStatement deleteStatement = parser.parseDeleteStatement();

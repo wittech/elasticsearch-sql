@@ -10,6 +10,7 @@ import org.elasticsearch.action.search.SearchScrollRequest;
 import org.elasticsearch.client.Client;
 import org.elasticsearch.index.reindex.BulkIndexByScrollResponseContentListener;
 import org.elasticsearch.index.reindex.DeleteByQueryRequest;
+import org.elasticsearch.index.reindex.UpdateByQueryRequest;
 import org.elasticsearch.plugin.nlpcn.*;
 import org.elasticsearch.rest.BytesRestResponse;
 import org.elasticsearch.rest.RestChannel;
@@ -67,6 +68,9 @@ public class ElasticDefaultRestExecutor implements RestExecutor {
             requestBuilder.getBuilder().execute(new GetIndexRequestRestListener(channel, (GetIndexRequest) request));
         } else if (request instanceof SearchScrollRequest) {
             client.searchScroll((SearchScrollRequest) request, new RestStatusToXContentListener<>(channel));
+        } else if (request instanceof UpdateByQueryRequest) {
+            //todo::增加了update语法支持
+            requestBuilder.getBuilder().execute(new BulkIndexByScrollResponseContentListener(channel, Maps.newHashMap()));
         } else {
             throw new Exception(String.format("Unsupported ActionRequest provided: %s", request.getClass().getName()));
         }
@@ -94,6 +98,9 @@ public class ElasticDefaultRestExecutor implements RestExecutor {
             return requestBuilder.get().toString();
         } else if (request instanceof GetIndexRequest) {
             return requestBuilder.getBuilder().execute().actionGet().toString();
+        } else if (request instanceof UpdateByQueryRequest) {
+            //todo::增加了更新语法支持
+            return requestBuilder.get().toString();
         } else {
             throw new Exception(String.format("Unsupported ActionRequest provided: %s", request.getClass().getName()));
         }

@@ -1,6 +1,7 @@
 package org.nlpcn.es4sql.parse;
 
 import com.alibaba.druid.sql.ast.expr.*;
+import com.alibaba.druid.sql.ast.statement.SQLUpdateStatement;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
 
@@ -31,6 +32,8 @@ public class WhereParser {
 
     private MySqlSelectQueryBlock query;
     private SQLDeleteStatement delete;
+    //todo::修改内容
+    private SQLUpdateStatement update;
     private SQLExpr where;
     private SqlParser sqlParser;
 
@@ -44,6 +47,14 @@ public class WhereParser {
         this.sqlParser = sqlParser;
         this.delete = delete;
         this.where = delete.getWhere();
+    }
+
+    //todo::修改内容
+    public WhereParser(SqlParser sqlParser, SQLUpdateStatement update)
+    {
+        this.sqlParser = sqlParser;
+        this.update = update;
+        this.where = update.getWhere();
     }
 
     public WhereParser(SqlParser sqlParser, SQLExpr expr) {

@@ -41,6 +41,13 @@ public class QueryActionElasticExecutor {
         return deleteQueryAction.explain().get();
     }
 
+    //todo::修改内容
+    public static ActionResponse executeUpdateAction(UpdateQueryAction updateQueryAction)
+            throws SqlParseException
+    {
+        return updateQueryAction.explain().get();
+    }
+
     public static SearchHits executeMultiQueryAction(Client client, MultiQueryAction queryAction) throws SqlParseException, IOException {
         SqlElasticRequestBuilder multiRequestBuilder = queryAction.explain();
         ElasticHitsExecutor executor = MultiRequestExecutorFactory.createExecutor(client, (MultiQueryRequestBuilder) multiRequestBuilder);
@@ -59,6 +66,10 @@ public class QueryActionElasticExecutor {
             return executeMultiQueryAction(client, (MultiQueryAction) queryAction);
         if(queryAction instanceof DeleteQueryAction )
             return executeDeleteAction((DeleteQueryAction) queryAction);
+        //todo::修改内容
+        if ((queryAction instanceof UpdateQueryAction)) {
+            return executeUpdateAction((UpdateQueryAction)queryAction);
+        }
         return null;
     }
 
