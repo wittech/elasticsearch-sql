@@ -31,7 +31,7 @@ public class ElasticSearchDruidPooledPreparedStatement extends DruidPooledPrepar
     public ResultSet executeQuery() throws SQLException {
         checkOpen();
 
-        incrementExecuteCount();
+        incrementExecuteQueryCount();
         transactionRecord(getSql());
 
         oracleSetRowPrefetch();
@@ -49,6 +49,8 @@ public class ElasticSearchDruidPooledPreparedStatement extends DruidPooledPrepar
 
             return poolableResultSet;
         } catch (Throwable t) {
+            errorCheck(t);
+
             throw checkException(t);
         } finally {
             conn.afterExecute();
@@ -75,6 +77,8 @@ public class ElasticSearchDruidPooledPreparedStatement extends DruidPooledPrepar
 
             return true;
         } catch (Throwable t) {
+            errorCheck(t);
+
             throw checkException(t);
         } finally {
             conn.afterExecute();
@@ -88,7 +92,7 @@ public class ElasticSearchDruidPooledPreparedStatement extends DruidPooledPrepar
 
         QueryAction queryAction = searchDao.explain(query);
         Object execution = QueryActionElasticExecutor.executeAnyAction(searchDao.getClient(), queryAction);
-        return new ObjectResultsExtractor(includeScore, includeType, includeId, queryAction).extractResults(execution, flat);
+        return new ObjectResultsExtractor(includeScore, includeType, includeId, false, queryAction).extractResults(execution, flat);
     }
 
 //    @Override
