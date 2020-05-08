@@ -1,10 +1,10 @@
 package org.elasticsearch.plugin.nlpcn;
 
 import com.google.common.collect.ImmutableMap;
+import org.apache.lucene.search.TotalHits;
 import org.elasticsearch.action.search.SearchRequestBuilder;
 import org.elasticsearch.action.search.SearchResponse;
 import org.elasticsearch.client.Client;
-import org.elasticsearch.common.bytes.BytesReference;
 import org.elasticsearch.common.unit.TimeValue;
 import org.elasticsearch.common.xcontent.XContentBuilder;
 import org.elasticsearch.common.xcontent.XContentFactory;
@@ -40,7 +40,7 @@ public class ElasticUtils {
 
 
     //use our deserializer instead of results toXcontent because the source field is differnet from sourceAsMap.
-    public static String hitsAsStringResult(SearchHits results, MetaSearchResult metaResults) throws IOException {
+    public static XContentBuilder hitsAsXContentBuilder(SearchHits results, MetaSearchResult metaResults) throws IOException {
         if(results == null) return null;
         Object[] searchHits;
         searchHits = new Object[(int) results.getTotalHits().value];
@@ -55,7 +55,9 @@ public class ElasticUtils {
             i++;
         }
         HashMap<String,Object> hits = new HashMap<>();
-        hits.put("total",results.getTotalHits());
+        TotalHits totalHits = results.getTotalHits();
+        hits.put("total", ImmutableMap.of("value", totalHits.value,
+                "relation", totalHits.relation == TotalHits.Relation.EQUAL_TO ? "eq" : "gte"));
         hits.put("max_score",results.getMaxScore());
         hits.put("hits",searchHits);
         XContentBuilder builder = XContentFactory.contentBuilder(XContentType.JSON).prettyPrint();
@@ -67,6 +69,6 @@ public class ElasticUtils {
                 , "failed", metaResults.getFailedShards()));
         builder.field("hits",hits) ;
         builder.endObject();
-        return BytesReference.bytes(builder).utf8ToString();
+        return builder;
     }
 }

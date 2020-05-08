@@ -167,6 +167,20 @@ public class HintFactory {
             String trackTotalTitsParam = getParamFromHint(hintAsString, "! TRACK_TOTAL_HITS");
             return new Hint(HintType.TRACK_TOTAL_HITS, new String[]{trackTotalTitsParam});
         }
+        if (hintAsString.startsWith("! TIMEOUT")) {
+            String timeoutParam = getParamFromHint(hintAsString, "! TIMEOUT");
+            return new Hint(HintType.TIMEOUT, new String[]{timeoutParam});
+        }
+        if (hintAsString.startsWith("! INDICES_OPTIONS")) {
+            String indicesOptions = getParamFromHint(hintAsString, "! INDICES_OPTIONS");
+            if (!indicesOptions.startsWith("{")) {
+                indicesOptions = "{" + indicesOptions;
+            }
+            if (!indicesOptions.endsWith("}")) {
+                indicesOptions = indicesOptions + "}";
+            }
+            return new Hint(HintType.INDICES_OPTIONS, new Object[]{indicesOptions});
+        }
 
         return null;
     }

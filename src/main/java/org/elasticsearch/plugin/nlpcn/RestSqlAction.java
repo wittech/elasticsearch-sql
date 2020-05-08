@@ -30,10 +30,10 @@ public class RestSqlAction extends BaseRestHandler {
     private static final Logger LOGGER = LogManager.getLogger();
 
     public RestSqlAction(RestController restController) {
-        restController.registerHandler(RestRequest.Method.POST, "/_sql/_explain", this);
-        restController.registerHandler(RestRequest.Method.GET, "/_sql/_explain", this);
-        restController.registerHandler(RestRequest.Method.POST, "/_sql", this);
-        restController.registerHandler(RestRequest.Method.GET, "/_sql", this);
+        restController.registerHandler(RestRequest.Method.POST, "/_nlpcn/sql/explain", this);
+        restController.registerHandler(RestRequest.Method.GET, "/_nlpcn/sql/explain", this);
+        restController.registerHandler(RestRequest.Method.POST, "/_nlpcn/sql", this);
+        restController.registerHandler(RestRequest.Method.GET, "/_nlpcn/sql", this);
     }
 
     @Override
@@ -61,7 +61,7 @@ public class RestSqlAction extends BaseRestHandler {
             queryAction = searchDao.explain(sql);//zhongshu-comment 语法解析，将sql字符串解析为一个Java查询对象
 
             // TODO add unit tests to explain. (rest level?)
-            if (request.path().endsWith("/_explain")) {
+            if (request.path().endsWith("/explain")) {
                 final String jsonExplanation = queryAction.explain().explain();
                 return channel -> channel.sendResponse(new BytesRestResponse(RestStatus.OK, XContentType.JSON.mediaType(), jsonExplanation));
             } else {

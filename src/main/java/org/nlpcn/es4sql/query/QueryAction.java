@@ -1,13 +1,16 @@
 package org.nlpcn.es4sql.query;
 
+import org.elasticsearch.action.search.SearchRequest;
 import org.elasticsearch.action.search.SearchRequestBuilder;
 import org.elasticsearch.action.support.IndicesOptions;
 import org.elasticsearch.client.Client;
+import org.elasticsearch.common.unit.TimeValue;
 import org.elasticsearch.common.xcontent.LoggingDeprecationHandler;
 import org.elasticsearch.common.xcontent.NamedXContentRegistry;
 import org.elasticsearch.common.xcontent.XContentParser;
 import org.elasticsearch.common.xcontent.json.JsonXContent;
 import org.elasticsearch.index.query.QueryBuilders;
+import org.elasticsearch.search.builder.SearchSourceBuilder;
 import org.elasticsearch.search.collapse.CollapseBuilder;
 import org.elasticsearch.search.fetch.subphase.highlight.HighlightBuilder;
 import org.nlpcn.es4sql.domain.Query;
@@ -96,6 +99,28 @@ public abstract class QueryAction {
                     request.setTrackTotalHitsUpTo(Integer.parseInt(param));
                 } catch (NumberFormatException ex) {
                     request.setTrackTotalHits(Boolean.parseBoolean(param));
+                }
+            }
+        }
+    }
+
+    protected void updateRequestWithTimeout(Select select, SearchRequestBuilder request) {
+        for (Hint hint : select.getHints()) {
+            if (hint.getType() == HintType.TIMEOUT && hint.getParams() != null && 0 < hint.getParams().length) {
+                String param = hint.getParams()[0].toString();
+                request.setTimeout(TimeValue.parseTimeValue(param, SearchSourceBuilder.TIMEOUT_FIELD.getPreferredName()));
+            }
+        }
+    }
+
+    protected void updateRequestWithIndicesOptions(Select select, SearchRequestBuilder request) throws SqlParseException {
+        for (Hint hint : select.getHints()) {
+            if (hint.getType() == HintType.INDICES_OPTIONS && hint.getParams() != null && 0 < hint.getParams().length) {
+                String param = hint.getParams()[0].toString();
+                try (XContentParser parser = JsonXContent.jsonXContent.createParser(NamedXContentRegistry.EMPTY, LoggingDeprecationHandler.INSTANCE, param)) {
+                    request.setIndicesOptions(IndicesOptions.fromMap(parser.map(), SearchRequest.DEFAULT_INDICES_OPTIONS));
+                } catch (IOException e) {
+                    throw new SqlParseException("could not parse indices_options hint: " + e.getMessage());
                 }
             }
         }
