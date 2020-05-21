@@ -20,6 +20,7 @@ import com.alibaba.druid.sql.ast.statement.SQLSelectItem;
 import com.alibaba.druid.sql.ast.statement.SQLSelectOrderByItem;
 import com.alibaba.druid.sql.ast.statement.SQLTableSource;
 import com.alibaba.druid.sql.ast.statement.SQLUnionQuery;
+import com.alibaba.druid.sql.ast.statement.SQLUpdateStatement;
 import com.alibaba.druid.sql.dialect.mysql.ast.expr.MySqlOrderingExpr;
 import com.alibaba.druid.sql.dialect.mysql.ast.statement.MySqlDeleteStatement;
 import com.alibaba.druid.sql.dialect.mysql.ast.statement.MySqlSelectQueryBlock;
@@ -32,6 +33,7 @@ import org.nlpcn.es4sql.domain.JoinSelect;
 import org.nlpcn.es4sql.domain.Query;
 import org.nlpcn.es4sql.domain.Select;
 import org.nlpcn.es4sql.domain.TableOnJoinSelect;
+import org.nlpcn.es4sql.domain.Update;
 import org.nlpcn.es4sql.domain.Where;
 import org.nlpcn.es4sql.domain.hints.Hint;
 import org.nlpcn.es4sql.domain.hints.HintFactory;
@@ -146,7 +148,7 @@ public class SqlParser {
 
         update.setWhere(whereParser.findWhere());
 
-        update.getHints().addAll(parseHints(((ElasticSqlUpdateStatement) updateStatement).getHints()));
+        // update.getHints().addAll(parseHints(((ElasticSqlUpdateStatement) updateStatement).getHints()));
 
         findLimit(((ElasticSqlUpdateStatement) updateStatement).getLimit(), update);
 

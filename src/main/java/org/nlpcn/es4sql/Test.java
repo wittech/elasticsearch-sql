@@ -5,9 +5,20 @@ import org.elasticsearch.client.node.NodeClient;
 import org.elasticsearch.common.settings.Settings;
 import org.elasticsearch.common.util.concurrent.ThreadContext;
 import org.elasticsearch.threadpool.ThreadPool;
+import static com.alibaba.druid.pool.DruidDataSourceFactory.PROP_CONNECTIONPROPERTIES;
+import static com.alibaba.druid.pool.DruidDataSourceFactory.PROP_URL;
 
+import java.sql.Connection;
+import java.sql.PreparedStatement;
+import java.sql.ResultSet;
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
+import java.util.Properties;
+
+import com.alibaba.druid.pool.DruidDataSource;
+import com.alibaba.druid.pool.ElasticSearchDruidDataSourceFactory;
 
 /**
  * Created by allwefantasy on 8/18/16.
@@ -33,7 +44,7 @@ public class Test {
     }
 
     public static void main(String[] args) throws Exception {
-        String sql = "SELECT u as u2,count(distinct(mid)) as count FROM panda_quality where ty='buffer' and day='20160816' and tm>1471312800.00 and tm<1471313100.00 and domain='http://pl10.live.panda.tv' group by u  order by count desc limit 5000";
+        // String sql = "SELECT u as u2,count(distinct(mid)) as count FROM panda_quality where ty='buffer' and day='20160816' and tm>1471312800.00 and tm<1471313100.00 and domain='http://pl10.live.panda.tv' group by u  order by count desc limit 5000";
 //        sql = "SELECT sum(num) as num2,newtype as nt  from  twitter2 group by nt  order by num2 ";
 //        System.out.println("sql" + sql + ":\n" + sqlToEsQuery(sql));
 //
@@ -78,16 +89,45 @@ public class Test {
 //        sql = "SELECT split(trim(concat_ws('dd',newtype,num_d)),'dd')[0] as nt from  twitter2 ";
 //        System.out.println("sql" + sql + ":\n----------\n" + sqlToEsQuery(sql));
 
-        sql = "SELECT floor(" +
-                "floor(substring(newtype,0,14)/100)/5)*5 as key," +
-                "count(distinct(num)) cvalue FROM twitter2 " +
-                "group by key ";
-        String TEST_INDEX = "elasticsearch-sql_test_index";
+        // sql = "SELECT floor(" +
+        //         "floor(substring(newtype,0,14)/100)/5)*5 as key," +
+        //         "count(distinct(num)) cvalue FROM twitter2 " +
+        //         "group by key ";
+        // String TEST_INDEX = "elasticsearch-sql_test_index";
 
-        sql =  "select * from xxx/locs where 'a' = 'b' and a > 1";
+        // sql =  "select * from xxx/locs where 'a' = 'b' and a > 1";
 
-        System.out.println("sql" + sql + ":\n----------\n" + sqlToEsQuery(sql));
+        // System.out.println("sql" + sql + ":\n----------\n" + sqlToEsQuery(sql));
 
+
+        Properties properties = new Properties();
+        properties.put(PROP_URL, "jdbc:elasticsearch://113.207.36.248:31010");
+        properties.put(PROP_CONNECTIONPROPERTIES, "client.transport.ignore_cluster_name=true");
+        DruidDataSource dds = (DruidDataSource) ElasticSearchDruidDataSourceFactory.createDataSource(properties);
+        Connection connection = dds.getConnection();
+        PreparedStatement ps = connection.prepareStatement("select name as org_name from ccp_org");
+
+        // PreparedStatement ps = connection.prepareStatement("SELECT /*! USE_SCROLL*/ gender,lastname,age,_scroll_id from  " + TestsConstants.TEST_INDEX_ACCOUNT + " where lastname='Heath'");
+        ResultSet resultSet = ps.executeQuery();
+
+        // ResultSetMetaData metaData = resultSet.getMetaData();
+        // assertThat(metaData.getColumnName(1), equalTo("gender"));
+        // assertThat(metaData.getColumnName(2), equalTo("lastname"));
+        // assertThat(metaData.getColumnName(3), equalTo("age"));
+
+        List<String> result = new ArrayList<String>();
+        String scrollId = null;
+        while (resultSet.next()) {
+            scrollId = resultSet.getString("org_name");
+        }
+
+        ps.close();
+        connection.close();
+        dds.close();
+
+        // Assert.assertEquals(1, result.size());
+        // Assert.assertEquals("Heath,39,F", result.get(0));
+        // Assert.assertFalse(Matchers.isEmptyOrNullString().matches(scrollId));
 
     }
 }
