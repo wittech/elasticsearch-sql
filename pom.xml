@@ -52,6 +52,10 @@
 
 	<repositories>
 		<repository>
+			<id>aliyunmaven</id>
+			<url>http://maven.aliyun.com/nexus/content/groups/public/</url>
+		</repository>
+		<repository>
 			<id>elasticsearch-releases</id>
 			<url>https://artifacts.elastic.co/maven</url>
 			<releases>
