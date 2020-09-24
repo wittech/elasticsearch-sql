@@ -1,5 +1,6 @@
 package org.nlpcn.es4sql.query.maker;
 
+import com.alibaba.druid.util.StringUtils;
 import org.elasticsearch.common.ParsingException;
 import org.elasticsearch.common.xcontent.LoggingDeprecationHandler;
 import org.elasticsearch.common.xcontent.NamedXContentRegistry;
@@ -13,6 +14,9 @@ import org.elasticsearch.search.aggregations.AggregationBuilder;
 import org.elasticsearch.search.aggregations.AggregationBuilders;
 import org.elasticsearch.search.aggregations.BucketOrder;
 import org.elasticsearch.search.aggregations.InternalOrder;
+import org.elasticsearch.search.aggregations.PipelineAggregatorBuilders;
+import org.elasticsearch.search.aggregations.bucket.filter.FiltersAggregationBuilder;
+import org.elasticsearch.search.aggregations.bucket.filter.FiltersAggregator;
 import org.elasticsearch.search.aggregations.bucket.geogrid.GeoGridAggregationBuilder;
 import org.elasticsearch.search.aggregations.bucket.histogram.DateHistogramAggregationBuilder;
 import org.elasticsearch.search.aggregations.bucket.histogram.DateHistogramInterval;
@@ -28,12 +32,15 @@ import org.elasticsearch.search.aggregations.metrics.GeoBoundsAggregationBuilder
 import org.elasticsearch.search.aggregations.metrics.PercentilesAggregationBuilder;
 import org.elasticsearch.search.aggregations.metrics.ScriptedMetricAggregationBuilder;
 import org.elasticsearch.search.aggregations.metrics.TopHitsAggregationBuilder;
+import org.elasticsearch.search.aggregations.pipeline.BucketSelectorPipelineAggregationBuilder;
+import org.elasticsearch.search.aggregations.pipeline.MovFnPipelineAggregationBuilder;
 import org.elasticsearch.search.aggregations.support.ValuesSourceAggregationBuilder;
 import org.elasticsearch.search.sort.SortOrder;
 import org.nlpcn.es4sql.Util;
 import org.nlpcn.es4sql.domain.Field;
 import org.nlpcn.es4sql.domain.KVValue;
 import org.nlpcn.es4sql.domain.MethodField;
+import org.nlpcn.es4sql.domain.Select;
 import org.nlpcn.es4sql.domain.Where;
 import org.nlpcn.es4sql.exception.SqlParseException;
 import org.nlpcn.es4sql.parse.ChildrenType;
@@ -47,6 +54,9 @@ import java.util.HashMap;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 public class AggMaker {
@@ -61,64 +71,110 @@ public class AggMaker {
      * @return
      * @throws SqlParseException
      */
-    public AggregationBuilder makeGroupAgg(Field field) throws SqlParseException {
-
+    public AggregationBuilder makeGroupAgg(Field field, Select select) throws SqlParseException {
+        AggregationBuilder aggsBuilder = null;
         //zhongshu-comment script类型的MethodField
-        if (field instanceof MethodField && field.getName().equals("script")) {
-            MethodField methodField = (MethodField) field;
-                /*
+        /*
                 TermsAggregationBuilder termsBuilder的样例：
                 来自这条sql的group by子句的gg字段解析结果：
                 select a,case when c='1' then 'haha' when c='2' then 'book' else 'hbhb' end as gg from tbl_a group by a,gg
-                {
-                    "gg":{ //aggs的名字就叫gg
-                        "terms":{
-                            "script":{
-                                "source":"if((doc['c'].value=='1')){'haha'} else if((doc['c'].value=='2')){'book'} else {'hbhb'}",
-                                "lang":"painless"
-                            },
-                            "size":10,
-                            "min_doc_count":1,
-                            "shard_min_doc_count":0,
-                            "show_term_doc_count_error":false,
-                            "order":[
-                                {
-                                    "_count":"desc"
-                                },
-                                {
-                                    "_key":"asc"
-                                }
-                            ]
-                        }
-                    }
-                }
-             */
+        */
+        if (field instanceof MethodField && field.getName().equals("script")) {
+            MethodField methodField = (MethodField) field;
             TermsAggregationBuilder termsBuilder = AggregationBuilders.terms(methodField.getAlias()).script(new Script(methodField.getParams().get(1).value.toString()));
-
             //question 这里为什么要将这些信息加到groupMap中？
             groupMap.put(methodField.getAlias(), new KVValue("KEY", termsBuilder));
-
-            return termsBuilder;
-        }
-
-        //zhongshu-comment filter类型的MethodField
-        if (field instanceof MethodField) {
-
+            aggsBuilder = termsBuilder;
+        } else if (field instanceof MethodField) {  //zhongshu-comment filter类型的MethodField
             MethodField methodField = (MethodField) field;
             if (methodField.getName().equals("filter")) {
                 Map<String, Object> paramsAsMap = methodField.getParamsAsMap();
                 Where where = (Where) paramsAsMap.get("where");
                 return AggregationBuilders.filter(paramsAsMap.get("alias").toString(),
                         QueryMaker.explan(where));
+            } else if ("filters".equals(methodField.getName())) {
+                Map<String, Object> paramsAsMap = methodField.getParamsAsMap();
+                List<FiltersAggregator.KeyedFilter> filters = new ArrayList<>();
+                @SuppressWarnings("unchecked")
+                List<Field> filterFields = (List<Field>) paramsAsMap.get("filters");
+                for (Field f : filterFields) {
+                    Map<String, Object> params = ((MethodField) f).getParamsAsMap();
+                    filters.add(new FiltersAggregator.KeyedFilter(params.get("alias").toString(),
+                            QueryMaker.explan((Where) params.get("where"))));
+                }
+                FiltersAggregationBuilder filtersAggBuilder = AggregationBuilders.filters(paramsAsMap.get("alias").toString(),
+                        filters.toArray(new FiltersAggregator.KeyedFilter[0]));
+                Object otherBucketKey = paramsAsMap.get("otherBucketKey");
+                if (Objects.nonNull(otherBucketKey)) {
+                    filtersAggBuilder.otherBucketKey(otherBucketKey.toString());
+                }
+                return filtersAggBuilder;
             }
-            return makeRangeGroup(methodField);
+            aggsBuilder =  makeRangeGroup(methodField);
         } else {
             TermsAggregationBuilder termsBuilder = AggregationBuilders.terms(field.getName()).field(field.getName());
             groupMap.put(field.getName(), new KVValue("KEY", termsBuilder));
-            return termsBuilder;
+            aggsBuilder =  termsBuilder;
         }
-    }
 
+        //added by xzb 如果 group by 后面有having 条件，则创建BucketSelector
+        String having = select.getHaving();
+        if (!StringUtils.isEmpty(having)) {
+            String kvRegex = "\\s*(?<key>[^><=!\\s&|]+)\\s*(?<oprator>>=|>|<=|<|==|!=)\\s*(?<value>[^><=!\\s&|]+)\\s*";
+            List<String> havingFields = new ArrayList<>();
+            Pattern pattern = Pattern.compile(kvRegex);
+            Matcher matcher = pattern.matcher(having);
+            while (matcher.find()) {
+                havingFields.add(matcher.group("key"));
+            }
+
+            //声明BucketPath，用于后面的bucket筛选
+            Map<String, String> bucketsPathsMap = new HashMap<>();
+            for (String key : havingFields) {
+                bucketsPathsMap.put(key, key);
+                //将key前面加上 param.参数
+                having = having.replace(key, "params." + key);
+            }
+            //将having语句中的  AND 和 OR 替换为&& 和 || ,painless 脚本只支持程序中的 && 和 || 逻辑判断
+            having = having.replace("AND", "&&").replace("OR", "||").replace("\\n", " ");
+
+            //设置脚本
+            Script script = new Script(having);
+
+            //构建bucket选择器
+            BucketSelectorPipelineAggregationBuilder bs = PipelineAggregatorBuilders.bucketSelector("having", bucketsPathsMap, script);
+            aggsBuilder.subAggregation(bs);
+        }
+
+        return aggsBuilder;
+    }
+    public MovFnPipelineAggregationBuilder makeMovingFieldAgg(MethodField field, AggregationBuilder parent) throws SqlParseException {
+        //question 加到groupMap里是为了什么
+        groupMap.put(field.getAlias(), new KVValue("FIELD", parent));
+
+        String bucketPath = field.getParams().get(0).value.toString();
+        int window = Integer.parseInt(field.getParams().get(1).value.toString());
+
+        ValuesSourceAggregationBuilder builder;
+        field.setAlias(fixAlias(field.getAlias()));
+        switch (field.getName().toUpperCase()) {
+            //added by xzb 增加 movingavg和rollingstd
+            case "MOVINGAVG":
+                MovFnPipelineAggregationBuilder mvAvg =
+                        //PipelineAggregatorBuilders.movingFunction("movingAvgIncome", new Script("MovingFunctions.unweightedAvg(values)"), "incomeSum", 2);
+                        PipelineAggregatorBuilders.movingFunction(field.getAlias(),  new Script("MovingFunctions.unweightedAvg(values)"), bucketPath, window);
+
+                return mvAvg;
+
+            case "ROLLINGSTD":
+                MovFnPipelineAggregationBuilder stdDev =
+                        //PipelineAggregatorBuilders.movingFunction("stdDevIncome", new Script("MovingFunctions.stdDev(values, MovingFunctions.unweightedAvg(values))"), "incomeSum", 2);
+                        PipelineAggregatorBuilders.movingFunction(field.getAlias() , new Script("MovingFunctions.stdDev(values, MovingFunctions.unweightedAvg(values))"), bucketPath, window);
+
+                return stdDev;
+        }
+        return  null;
+    }
 
     /**
      * Create aggregation according to the SQL function.
@@ -158,6 +214,10 @@ public class AggMaker {
                 builder = AggregationBuilders.percentiles(field.getAlias());
                 addSpecificPercentiles((PercentilesAggregationBuilder) builder, field.getParams());
                 return addFieldToAgg(field, builder);
+            case "PERCENTILE_RANKS":
+                double[] rankVals = getSpecificPercentileRankVals(field.getParams());
+                builder = AggregationBuilders.percentileRanks(field.getAlias(), rankVals);
+                return addFieldToAgg(field, builder);
             case "TOPHITS":
                 return makeTopHitsAgg(field);
             case "SCRIPTED_METRIC":
@@ -189,6 +249,26 @@ public class AggMaker {
             }
             percentilesBuilder.percentiles(percentilesArr);
         }
+    }
+
+
+    private  double[]  getSpecificPercentileRankVals(List<KVValue> params) {
+        List<Double> rankVals = new ArrayList<>();
+        //added by xzb 找出 percentile_ranks 类型的MethodField 中要求取百分位的值
+        for (KVValue kValue : params) {
+            if (kValue.value.getClass().equals(BigDecimal.class)) {
+                BigDecimal percentile = (BigDecimal) kValue.value;
+                rankVals.add(percentile.doubleValue());
+            } else if (kValue.value instanceof Integer) {
+                rankVals.add(((Integer) kValue.value).doubleValue());
+            }
+        }
+        double[] _rankVals = new double[rankVals.size()];
+        for (int i = 0; i < rankVals.size(); i++) {
+            _rankVals[i] =  rankVals.get(i);
+        }
+
+        return _rankVals;
     }
 
     private String fixAlias(String alias) {
@@ -256,12 +336,14 @@ public class AggMaker {
             case "range":
                 return rangeBuilder(field);
             case "date_histogram":
+            case "dhg":
                 return dateHistogram(field);
             case "date_range":
                 return dateRange(field);
             case "month":
                 return dateRange(field);
             case "histogram":
+            case "hg":
                 return histogram(field);
             case "geohash_grid":
                 return geohashGrid(field);
@@ -577,6 +659,7 @@ public class AggMaker {
      * @throws SqlParseException
      */
     private DateHistogramAggregationBuilder dateHistogram(MethodField field) throws SqlParseException {
+
         String alias = gettAggNameFromParamsOrAlias(field);
         DateHistogramAggregationBuilder dateHistogram = AggregationBuilders.dateHistogram(alias).format(TIME_FARMAT);
         String value = null;
@@ -589,6 +672,12 @@ public class AggMaker {
                 switch (kv.key.toLowerCase()) {
                     case "interval":
                         dateHistogram.dateHistogramInterval(new DateHistogramInterval(kv.value.toString()));
+                        break;
+                    case "calendar_interval":
+                        dateHistogram.calendarInterval(new DateHistogramInterval(kv.value.toString()));
+                        break;
+                    case "fixed_interval":
+                        dateHistogram.fixedInterval(new DateHistogramInterval(kv.value.toString()));
                         break;
                     case "field":
                         dateHistogram.field(value);
@@ -662,7 +751,8 @@ public class AggMaker {
                 value = kv.value.toString();
                 switch (kv.key.toLowerCase()) {
                     case "interval":
-                        histogram.interval(Long.parseLong(value));
+                        //modified by xzb histogram聚合, interval必须为数值
+                        histogram.interval(Long.parseLong(value.replace("'", "")));
                         break;
                     case "field":
                         histogram.field(value);
@@ -673,7 +763,7 @@ public class AggMaker {
                     case "extended_bounds":
                         String[] bounds = value.split(":");
                         if (bounds.length == 2)
-                            histogram.extendedBounds(Long.valueOf(bounds[0]), Long.valueOf(bounds[1]));
+                            histogram.extendedBounds(Long.parseLong(bounds[0]), Long.parseLong(bounds[1]));
                         break;
                     case "alias":
                     case "nested":
@@ -742,9 +832,15 @@ public class AggMaker {
 
         // Cardinality is approximate DISTINCT.
         if ("DISTINCT".equals(field.getOption())) {
-
             if (field.getParams().size() == 1) {
-                return AggregationBuilders.cardinality(field.getAlias()).field(field.getParams().get(0).value.toString());
+                String fieldValue = field.getParams().get(0).value.toString();
+                //modified by xzb 去除 cardinality 下面的 fields字段，否则会导致计算结果为 0
+                //防止 SELECT  count(distinct age%2) as distCnt FROM bank group by gender 出现计算错误问题
+                if (fieldValue.contains("def") && fieldValue.contains("return")) {
+                    return  AggregationBuilders.cardinality(field.getAlias());
+                } else {
+                    return AggregationBuilders.cardinality(field.getAlias()).field(field.getParams().get(0).value.toString());
+                }
             } else {
                 Integer precision_threshold = (Integer) (field.getParams().get(1).value);
                 return AggregationBuilders.cardinality(field.getAlias()).precisionThreshold(precision_threshold).field(field.getParams().get(0).value.toString());
@@ -777,7 +873,15 @@ public class AggMaker {
              */
             return AggregationBuilders.count(field.getAlias()).field(kvValue.toString());
         } else {
-            return AggregationBuilders.count(field.getAlias()).field(fieldName);
+            String fieldValue = field.getParams().get(0).value.toString();
+            //modified by xzb 去除 cardinality 下面的 fields字段，否则会导致计算结果为 0
+            //防止 SELECT  count(distinct age%2) as distCnt FROM bank group by gender 出现计算错误问题
+            if (fieldValue.contains("def") && fieldValue.contains("return")) {
+                return AggregationBuilders.count(field.getAlias());
+            } else {
+                return AggregationBuilders.count(field.getAlias()).field(fieldName);
+            }
+
         }
     }
 
@@ -826,5 +930,6 @@ public class AggMaker {
     public Map<String, KVValue> getGroupMap() {
         return this.groupMap;
     }
+
 
 }

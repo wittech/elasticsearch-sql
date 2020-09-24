@@ -1,10 +1,19 @@
 package org.nlpcn.es4sql.parse;
 
-import java.util.ArrayList;
-import java.util.LinkedList;
-import java.util.List;
-
-import com.alibaba.druid.sql.ast.expr.*;
+import com.alibaba.druid.sql.ast.SQLExpr;
+import com.alibaba.druid.sql.ast.expr.SQLAggregateExpr;
+import com.alibaba.druid.sql.ast.expr.SQLAggregateOption;
+import com.alibaba.druid.sql.ast.expr.SQLAllColumnExpr;
+import com.alibaba.druid.sql.ast.expr.SQLBinaryOpExpr;
+import com.alibaba.druid.sql.ast.expr.SQLCaseExpr;
+import com.alibaba.druid.sql.ast.expr.SQLCastExpr;
+import com.alibaba.druid.sql.ast.expr.SQLCharExpr;
+import com.alibaba.druid.sql.ast.expr.SQLIdentifierExpr;
+import com.alibaba.druid.sql.ast.expr.SQLMethodInvokeExpr;
+import com.alibaba.druid.sql.ast.expr.SQLPropertyExpr;
+import com.alibaba.druid.sql.ast.expr.SQLQueryExpr;
+import com.alibaba.druid.sql.ast.expr.SQLVariantRefExpr;
+import com.alibaba.druid.util.StringUtils;
 import com.google.common.collect.Lists;
 import org.elasticsearch.common.collect.Tuple;
 import org.nlpcn.es4sql.SQLFunctions;
@@ -14,7 +23,10 @@ import org.nlpcn.es4sql.domain.KVValue;
 import org.nlpcn.es4sql.domain.MethodField;
 import org.nlpcn.es4sql.domain.Where;
 import org.nlpcn.es4sql.exception.SqlParseException;
-import com.alibaba.druid.sql.ast.*;
+
+import java.util.ArrayList;
+import java.util.LinkedList;
+import java.util.List;
 
 /**
  * 一些具有参数的一般在 select 函数.或者group by 函数
@@ -49,6 +61,8 @@ public class FieldMaker {
                 }
             } else if (methodName.equalsIgnoreCase("filter")) {
                 return makeFilterMethodField(mExpr, alias);
+            } else if ("filters".equalsIgnoreCase(methodName)) {
+                return makeFiltersMethodField(mExpr, alias);
             }
 
             return makeMethodField(methodName, mExpr.getParameters(), null, alias, tableAlias, true);
@@ -98,6 +112,13 @@ public class FieldMaker {
 
         Object left = getScriptValue(binaryExpr.getLeft());
         Object right = getScriptValue(binaryExpr.getRight());
+
+        //added by xzb 修复 if 条件的 value 被去除单引号问题
+      /*  String tmp = binaryExpr.getRight().toString().trim();
+        if (tmp.startsWith("'") && tmp.endsWith("'")) {
+            right = "'" + right + "'";
+        }*/
+
         String script = String.format("%s %s %s", left, binaryExpr.getOperator().getName(), right);
 
         params.add(new SQLCharExpr(script));
@@ -132,6 +153,38 @@ public class FieldMaker {
         return new MethodField("filter", methodParameters, null, alias);
     }
 
+    private static Field makeFiltersMethodField(SQLMethodInvokeExpr filtersMethod, String alias) throws SqlParseException {
+        List<SQLExpr> parameters = filtersMethod.getParameters();
+        int firstFilterMethod = -1;
+        int parametersSize = parameters.size();
+        for (int i = 0; i < parametersSize; ++i) {
+            if (parameters.get(i) instanceof SQLMethodInvokeExpr) {
+                firstFilterMethod = i;
+                break;
+            }
+        }
+        if (firstFilterMethod < 0) {
+            throw new SqlParseException("filters group by field should have one more filter methods");
+        }
+
+        String filtersAlias = filtersMethod.getMethodName();
+        String otherBucketKey = null;
+        if (0 < firstFilterMethod) {
+            filtersAlias = Util.extendedToString(parameters.get(0));
+            if (1 < firstFilterMethod) {
+                otherBucketKey = Util.extendedToString(parameters.get(1));
+            }
+        }
+        List<Field> filterFields = new ArrayList<>();
+        for (SQLExpr expr : parameters.subList(firstFilterMethod, parametersSize)) {
+            filterFields.add(makeFilterMethodField((SQLMethodInvokeExpr) expr, null));
+        }
+        List<KVValue> methodParameters = new ArrayList<>();
+        methodParameters.add(new KVValue("alias", filtersAlias + "@FILTERS"));
+        methodParameters.add(new KVValue("otherBucketKey", otherBucketKey));
+        methodParameters.add(new KVValue("filters", filterFields));
+        return new MethodField("filters", methodParameters, null, alias);
+    }
 
     private static Field handleIdentifier(NestedType nestedType, String alias, String tableAlias) throws SqlParseException {
         Field field = handleIdentifier(new SQLIdentifierExpr(nestedType.field), alias, tableAlias);
@@ -227,7 +280,9 @@ public class FieldMaker {
     public static MethodField makeMethodField(String name, List<SQLExpr> arguments, SQLAggregateOption option, String alias, String tableAlias, boolean first) throws SqlParseException {
         List<KVValue> paramers = new LinkedList<>();
         String finalMethodName = name;
-
+        //added by xzb 默认的二元操作符为 ==
+        String binaryOperatorName = null;
+        List<String> binaryOperatorNames = new ArrayList<>();
         for (SQLExpr object : arguments) {
 
             if (object instanceof SQLBinaryOpExpr) {
@@ -240,12 +295,25 @@ public class FieldMaker {
                     String key = mf.getParams().get(0).toString(), value = mf.getParams().get(1).toString();
                     paramers.add(new KVValue(key, new SQLCharExpr(first && !SQLFunctions.buildInFunctions.contains(finalMethodName) ? String.format("%s;return %s;", value, key) : value)));
                 } else {
-                    if (!binaryOpExpr.getOperator().getName().equals("=")) {
-                        paramers.add(new KVValue("script", makeScriptMethodField(binaryOpExpr, null, tableAlias)));
-                    } else {
+                  //modified by xzb 增加 =、!= 以外二元操作符的支持
+                     binaryOperatorName = binaryOpExpr.getOperator().getName().trim();
+                    if (SQLFunctions.binaryOperators.contains(binaryOperatorName)) {
+                        binaryOperatorNames.add(binaryOperatorName);
                         SQLExpr right = binaryOpExpr.getRight();
+
                         Object value = Util.expr2Object(right);
+
+                        //added by xzb if 语法的二元操作符的值如果有引号，不能去掉
+                        //select  name, if(gender='m','男','女') as myGender from bank  LIMIT 0, 10
+                        if (binaryOpExpr.getParent() instanceof SQLMethodInvokeExpr) {
+                            String  methodName  = ((SQLMethodInvokeExpr)binaryOpExpr.getParent()).getMethodName();
+                            if ("if".equals(methodName) || "case".equals(methodName) || "case_new".equals(methodName)) {
+                                value = Util.expr2Object(right, "'");
+                            }
+                        }
                         paramers.add(new KVValue(binaryOpExpr.getLeft().toString(), value));
+                    } else {
+                        paramers.add(new KVValue("script", makeScriptMethodField(binaryOpExpr, null, tableAlias)));
                     }
                 }
 
@@ -273,9 +341,16 @@ public class FieldMaker {
                     paramers.add(new KVValue("children", childrenType));
                 } else if (SQLFunctions.buildInFunctions.contains(methodName)) {
                     //throw new SqlParseException("only support script/nested as inner functions");
-                    MethodField mf = makeMethodField(methodName, mExpr.getParameters(), null, null, tableAlias, false);
-                    String key = mf.getParams().get(0).toString(), value = mf.getParams().get(1).toString();
-                    paramers.add(new KVValue(key, new SQLCharExpr(first && !SQLFunctions.buildInFunctions.contains(finalMethodName) ? String.format("%s;return %s;", value, key) : value)));
+                    //added by xzb 2020-05-07 用于聚合查询时支持if、case_new 函数生成新的值
+                    if (mExpr.getParent() instanceof  SQLAggregateExpr) {
+                        KVValue script = new KVValue("script", makeMethodField(mExpr.getMethodName(), mExpr.getParameters(), null, alias, tableAlias, true));
+                        paramers.add(script);
+                    } else {
+                        MethodField mf = makeMethodField(methodName, mExpr.getParameters(), null, null, tableAlias, false);
+                        String key = mf.getParams().get(0).toString(), value = mf.getParams().get(1).toString();
+                        paramers.add(new KVValue(key, new SQLCharExpr(first && !SQLFunctions.buildInFunctions.contains(finalMethodName) ? String.format("%s;return %s;", value, key) : value)));
+                    }
+
                 } else throw new SqlParseException("only support script/nested/children as inner functions");
             } else if (object instanceof SQLCaseExpr) {
                 String scriptCode = new CaseWhenParser((SQLCaseExpr) object, alias, tableAlias).parse();
@@ -296,8 +371,13 @@ public class FieldMaker {
                 alias = "field_" + SQLFunctions.random();//paramers.get(0).value.toString();
             }
             //should check if field and first .
-            Tuple<String, String> newFunctions = SQLFunctions.function(finalMethodName, paramers,
-                    paramers.get(0).key,first);
+            Tuple<String, String> newFunctions = null;
+            try {
+                //added by xzb 构造script时，二元操作符可能是多样的 case_new 语法，需要 binaryOperatorNames 参数
+                newFunctions = SQLFunctions.function(finalMethodName, paramers, paramers.get(0).key,first, binaryOperatorName, binaryOperatorNames);
+            } catch (Exception e) {
+                e.printStackTrace();
+            }
             paramers.clear();
             if (!first) {
                 //variance
@@ -305,7 +385,12 @@ public class FieldMaker {
             } else {
                 
                 if(newFunctions.v1().toLowerCase().contains("if")){
-                    paramers.add(new KVValue(newFunctions.v1()));
+                    //added by xzb 如果有用户指定的别名，则不使用自动生成的别名
+                    if (!StringUtils.isEmpty(alias) && !alias.startsWith("field_")) {
+                        paramers.add(new KVValue(alias));
+                    } else {
+                        paramers.add(new KVValue(newFunctions.v1()));
+                    }
                 }else {
                     paramers.add(new KVValue(alias));
                 }

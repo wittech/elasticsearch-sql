@@ -171,6 +171,12 @@ public class SqlParser {
 
     private void findGroupBy(MySqlSelectQueryBlock query, Select select) throws SqlParseException {
         SQLSelectGroupByClause groupBy = query.getGroupBy();
+
+        //modified by xzb group by 增加Having语法
+        if (null != query.getGroupBy() && null != query.getGroupBy().getHaving()) {
+            select.setHaving(query.getGroupBy().getHaving().toString());
+        }
+
         SQLTableSource sqlTableSource = query.getFrom();
         if (groupBy == null) {
             return;
