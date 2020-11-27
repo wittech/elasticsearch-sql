@@ -1,6 +1,5 @@
 package org.elasticsearch.plugin.nlpcn;
 
-import org.apache.lucene.search.TotalHits;
 import org.elasticsearch.action.search.SearchRequestBuilder;
 import org.elasticsearch.action.search.SearchResponse;
 import org.elasticsearch.client.Client;

@@ -28,8 +28,6 @@ import org.nlpcn.es4sql.query.QueryAction;
 
 import java.util.ArrayList;
 import java.util.Collection;
-import java.util.Iterator;
-import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
@@ -56,17 +54,6 @@ public class CSVResultsExtractor {
         this.currentLineIndex = 0;
         this.queryAction = queryAction;
     }
-
-    public CSVResultsExtractor(boolean includeIndex, boolean includeScore, boolean includeType, boolean includeId, boolean includeScrollId, QueryAction queryAction) {
-        this.includeIndex = includeIndex;
-        this.includeScore = includeScore;
-        this.includeType = includeType;
-        this.includeId = includeId;
-        this.includeScrollId = includeScrollId;
-        this.currentLineIndex = 0;
-        this.queryAction = queryAction;
-    }
-
 
     public CSVResult extractResults(Object queryResult, boolean flat, String separator, boolean quote) throws CsvExtractorException {
         if(queryResult instanceof SearchHits){
@@ -99,8 +86,7 @@ public class CSVResultsExtractor {
             List<Map<String, Object>> docsAsMap = new ArrayList<>();
             List<String> headers = createHeadersAndFillDocsMap(flat, hits, ((SearchResponse) queryResult).getScrollId(), docsAsMap);
             List<String> csvLines = createCSVLinesFromDocs(flat, separator, quote, docsAsMap, headers);
-            //return new CSVResult(headers, csvLines);
-            return new CSVResult(headers, csvLines, ((SearchResponse) queryResult).getHits().getTotalHits().value);
+            return new CSVResult(headers, csvLines);
         }
         if (queryResult instanceof GetIndexResponse){
             ImmutableOpenMap<String, ImmutableOpenMap<String, MappingMetadata>> mappings = ((GetIndexResponse) queryResult).getMappings();
@@ -358,15 +344,7 @@ public class CSVResultsExtractor {
 
     private List<String> createHeadersAndFillDocsMap(boolean flat, SearchHit[] hits, String scrollId, List<Map<String, Object>> docsAsMap) {
         Set<String> csvHeaders = new LinkedHashSet<>();
-        Map<String, String> highlightMap = Maps.newHashMap();
         for (SearchHit hit : hits) {
-            //获取高亮内容
-            hit.getHighlightFields().entrySet().stream().forEach(entry -> {
-                String key = entry.getKey();
-                String frag = entry.getValue().getFragments()[0].toString();
-                highlightMap.put(key, frag);
-            });
-
             Map<String, Object> doc = hit.getSourceAsMap();
             //替换掉将原始结果中字段的值替换为高亮后的内容
             for (Map.Entry<String, Object> entry : doc.entrySet()) {
@@ -380,9 +358,6 @@ public class CSVResultsExtractor {
                 doc.put(searchHitField.getName(), searchHitField.getValue());
             }
             mergeHeaders(csvHeaders, doc, flat);
-            if (this.includeIndex) {
-                doc.put("_index", hit.getIndex());
-            }
             if (this.includeId) {
                 doc.put("_id", hit.getId());
             }
@@ -396,9 +371,6 @@ public class CSVResultsExtractor {
                 doc.put("_scroll_id", scrollId);
             }
             docsAsMap.add(doc);
-        }
-        if (this.includeIndex) {
-            csvHeaders.add("_index");
         }
         if (this.includeId) {
             csvHeaders.add("_id");

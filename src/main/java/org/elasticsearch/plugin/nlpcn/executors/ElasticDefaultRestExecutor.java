@@ -104,7 +104,6 @@ public class ElasticDefaultRestExecutor implements RestExecutor {
         } else {
             throw new Exception(String.format("Unsupported ActionRequest provided: %s", request.getClass().getName()));
         }
-
     }
 
     private void sendDefaultResponse(SearchHits hits, RestChannel channel) {
